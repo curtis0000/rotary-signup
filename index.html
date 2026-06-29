@@ -1,0 +1,657 @@
+<!--
+  扶輪社活動報名板 — 取代 Line 接龍
+  單一 HTML，使用 Firebase Firestore 作為共享後端，
+  所有打開此頁面的人看到同一份名單。
+-->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{
+    --azure:#17468f;
+    --azure-bright:#1f5bb5;
+    --gold:#f2a900;
+    --gold-deep:#c8870b;
+    --ink:#1a2230;
+    --muted:#5b6675;
+    --line:#e4e7ec;
+    --bg:#f5f6f8;
+    --card:#ffffff;
+    --good:#1a7f4b;
+    --danger:#c0392b;
+    --radius:14px;
+    --shadow:0 1px 2px rgba(16,24,40,.06), 0 6px 18px rgba(16,24,40,.05);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif;
+    line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:720px;margin:0 auto;padding:18px 16px 64px}
+
+  /* ---- header ---- */
+  header.top{
+    background:linear-gradient(135deg,var(--azure) 0%,var(--azure-bright) 100%);
+    color:#fff;border-radius:var(--radius);padding:20px 18px;box-shadow:var(--shadow);
+    position:relative;overflow:hidden;
+  }
+  header.top .cog{
+    position:absolute;right:-26px;top:-26px;width:130px;height:130px;opacity:.16;
+  }
+  header.top h1{margin:0;font-size:21px;font-weight:800;letter-spacing:.3px}
+  header.top .sub{margin-top:4px;font-size:13px;opacity:.85}
+  .statusbar{display:flex;align-items:center;gap:8px;margin-top:14px;font-size:12.5px;opacity:.92}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--gold);box-shadow:0 0 0 0 rgba(242,169,0,.7)}
+  .dot.live{animation:pulse 1.8s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(242,169,0,.6)}70%{box-shadow:0 0 0 7px rgba(242,169,0,0)}100%{box-shadow:0 0 0 0 rgba(242,169,0,0)}}
+  .statusbar button{
+    margin-left:auto;background:rgba(255,255,255,.16);color:#fff;border:1px solid rgba(255,255,255,.25);
+    border-radius:8px;padding:5px 10px;font-size:12.5px;cursor:pointer;font-weight:600;
+  }
+  .statusbar button:active{transform:scale(.97)}
+
+  /* ---- toolbar ---- */
+  .toolbar{display:flex;align-items:center;gap:10px;margin:16px 2px 8px}
+  .toolbar .seg{display:flex;background:#eceef2;border-radius:10px;padding:3px}
+  .toolbar .seg button{
+    border:0;background:transparent;color:var(--muted);font-size:13px;font-weight:600;
+    padding:6px 12px;border-radius:8px;cursor:pointer;
+  }
+  .toolbar .seg button.on{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+  .toolbar .admin{
+    margin-left:auto;display:flex;align-items:center;gap:7px;font-size:13px;color:var(--muted);
+    cursor:pointer;user-select:none;
+  }
+  .switch{width:38px;height:22px;border-radius:22px;background:#cdd2da;position:relative;transition:background .15s}
+  .switch::after{content:"";position:absolute;width:18px;height:18px;border-radius:50%;background:#fff;top:2px;left:2px;transition:left .15s;box-shadow:0 1px 2px rgba(0,0,0,.2)}
+  .switch.on{background:var(--azure-bright)}
+  .switch.on::after{left:18px}
+
+  /* ---- session card ---- */
+  .card{
+    background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+    box-shadow:var(--shadow);margin-top:14px;overflow:hidden;
+  }
+  .card.past{opacity:.66}
+  .chead{padding:15px 16px 12px;border-bottom:1px solid var(--line)}
+  .chead .when{
+    display:inline-block;font-size:12px;font-weight:700;color:var(--azure);
+    background:#eaf1fb;border-radius:6px;padding:3px 8px;letter-spacing:.2px;
+  }
+  .chead .badge-past{background:#f0f1f3;color:var(--muted)}
+  .chead h2{margin:9px 0 3px;font-size:17px;font-weight:800;line-height:1.3}
+  .chead .meta{font-size:13px;color:var(--muted);display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:5px}
+  .chead .note{font-size:12.5px;color:var(--muted);margin-top:7px;white-space:pre-wrap}
+
+  .capwrap{margin-top:11px}
+  .capline{display:flex;align-items:baseline;justify-content:space-between;font-size:12.5px;color:var(--muted)}
+  .capline b{font-size:14px;color:var(--ink);font-variant-numeric:tabular-nums}
+  .capbar{height:6px;border-radius:6px;background:#eef0f3;margin-top:5px;overflow:hidden}
+  .capbar > i{display:block;height:100%;background:linear-gradient(90deg,var(--gold),var(--gold-deep));border-radius:6px;transition:width .3s}
+  .capbar.full > i{background:linear-gradient(90deg,#e36209,#c0392b)}
+
+  /* ---- signup list ---- */
+  ol.list{list-style:none;margin:0;padding:4px 0}
+  ol.list li{
+    display:flex;align-items:center;gap:10px;padding:9px 16px;font-size:14.5px;
+    border-top:1px solid #f1f2f4;
+  }
+  ol.list li:first-child{border-top:0}
+  ol.list li .idx{
+    flex:0 0 24px;text-align:right;font-variant-numeric:tabular-nums;color:var(--muted);
+    font-size:13px;font-weight:600;
+  }
+  ol.list li .nm{font-weight:600;color:var(--ink)}
+  ol.list li .plus{font-size:12px;color:var(--gold-deep);font-weight:700;background:#fff6e3;padding:1px 6px;border-radius:5px}
+  ol.list li .rownote{font-size:12.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  ol.list li.mine{background:#f3f8ff}
+  ol.list li .mineflag{font-size:11px;color:var(--azure);font-weight:700}
+  ol.list li .acts{margin-left:auto;display:flex;gap:4px;flex:0 0 auto}
+  ol.list li .acts button{
+    border:0;background:transparent;cursor:pointer;color:#9aa3b0;font-size:13px;
+    padding:4px 7px;border-radius:7px;
+  }
+  ol.list li .acts button:hover{background:#f0f1f3;color:var(--ink)}
+  ol.list .empty{padding:14px 16px;color:#9aa3b0;font-size:13.5px;text-align:center;border:0}
+
+  /* ---- add signup form ---- */
+  .cfoot{padding:11px 14px 14px;background:#fafbfc;border-top:1px solid var(--line)}
+  .addbtn{
+    width:100%;border:1.5px dashed #c3c9d2;background:#fff;color:var(--azure);
+    border-radius:10px;padding:11px;font-size:14.5px;font-weight:700;cursor:pointer;
+  }
+  .addbtn:active{transform:scale(.995)}
+  .form{display:none;flex-direction:column;gap:9px}
+  .form.open{display:flex}
+  .form .row2{display:flex;gap:9px}
+  .form input,.form textarea{
+    width:100%;border:1px solid var(--line);border-radius:9px;padding:10px 11px;font-size:15px;
+    font-family:inherit;background:#fff;color:var(--ink);
+  }
+  .form input:focus,.form textarea:focus{outline:none;border-color:var(--azure-bright);box-shadow:0 0 0 3px rgba(31,91,181,.12)}
+  .form .name{flex:1}
+  .form .party{flex:0 0 96px}
+  .form textarea{resize:vertical;min-height:38px}
+  .form .formacts{display:flex;gap:9px;margin-top:2px}
+  .btn{border:0;border-radius:9px;padding:11px 14px;font-size:14.5px;font-weight:700;cursor:pointer}
+  .btn.primary{background:var(--azure);color:#fff;flex:1}
+  .btn.primary:active{background:#103a78}
+  .btn.ghost{background:#eceef2;color:var(--muted)}
+  .field-label{font-size:12px;color:var(--muted);margin:-2px 0 -4px 2px}
+
+  /* ---- add session (admin) ---- */
+  .newsession{
+    margin-top:14px;border:1.5px dashed #c3c9d2;border-radius:var(--radius);
+    background:#fff;padding:14px;
+  }
+  .newsession h3{margin:0 0 10px;font-size:15px;color:var(--azure)}
+  .newsession .grid{display:flex;flex-direction:column;gap:9px}
+  .newsession .row2{display:flex;gap:9px}
+  .newsession input,.newsession textarea{
+    width:100%;border:1px solid var(--line);border-radius:9px;padding:10px 11px;font-size:15px;font-family:inherit;
+  }
+  .newsession input:focus,.newsession textarea:focus{outline:none;border-color:var(--azure-bright);box-shadow:0 0 0 3px rgba(31,91,181,.12)}
+
+  .adminbar{display:flex;gap:8px;margin-bottom:11px}
+  .abtn{font-size:12.5px;font-weight:700;border-radius:8px;padding:6px 11px;cursor:pointer;border:1px solid var(--line);background:#fff}
+  .abtn:active{transform:scale(.97)}
+  .abtn.edit{color:var(--azure);border-color:#cfe0f6;background:#eaf1fb}
+  .abtn.del{color:var(--danger);border-color:#f3c9c5;background:#fdedec}
+  .editsession{padding:15px 16px;display:flex;flex-direction:column;gap:9px}
+  .editsession h3{margin:0 0 2px;font-size:15px;color:var(--azure)}
+  .editsession .row2{display:flex;gap:9px}
+  .editsession input,.editsession textarea{
+    width:100%;border:1px solid var(--line);border-radius:9px;padding:10px 11px;font-size:15px;font-family:inherit;
+  }
+  .editsession input:focus,.editsession textarea:focus{outline:none;border-color:var(--azure-bright);box-shadow:0 0 0 3px rgba(31,91,181,.12)}
+  .editsession textarea{resize:vertical;min-height:40px}
+
+  .footnote{margin-top:22px;font-size:12px;color:#9aa3b0;text-align:center;line-height:1.6}
+  .empty-board{
+    text-align:center;color:var(--muted);padding:40px 20px;font-size:14.5px;
+    background:#fff;border:1px dashed var(--line);border-radius:var(--radius);margin-top:14px;
+  }
+
+  /* ---- export modal ---- */
+  .modal{display:none;position:fixed;inset:0;background:rgba(16,24,40,.45);z-index:50;
+    align-items:center;justify-content:center;padding:16px}
+  .modal.open{display:flex}
+  .modal-box{background:#fff;border-radius:var(--radius);width:100%;max-width:560px;
+    max-height:88vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3);overflow:hidden}
+  .modal-head{display:flex;align-items:center;padding:14px 16px;border-bottom:1px solid var(--line)}
+  .modal-head strong{font-size:16px}
+  .modal-head .x{margin-left:auto;border:0;background:transparent;font-size:16px;color:var(--muted);cursor:pointer;padding:4px 8px;border-radius:7px}
+  .modal-head .x:hover{background:#f0f1f3}
+  .modal-sub{padding:10px 16px 0;font-size:12.5px;color:var(--muted)}
+  #exportText{margin:10px 16px;border:1px solid var(--line);border-radius:9px;padding:10px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:1.45;
+    min-height:200px;resize:vertical;background:#fafbfc;color:var(--ink);white-space:pre}
+  .modal-acts{display:flex;gap:9px;padding:0 16px 16px}
+  .modal-acts .btn{flex:1}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <svg class="cog" viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="M12 8a4 4 0 100 8 4 4 0 000-8zm9.4 4a7.4 7.4 0 00-.13-1.34l2.06-1.6-2-3.46-2.43.98a7.5 7.5 0 00-2.32-1.34L15.9 1h-4l-.36 2.6a7.5 7.5 0 00-2.32 1.34L6.8 3.96l-2 3.46 2.06 1.6A7.4 7.4 0 006.7 12c0 .46.05.9.13 1.34L4.77 14.9l2 3.46 2.43-.98a7.5 7.5 0 002.32 1.34l.36 2.6h4l.36-2.6a7.5 7.5 0 002.32-1.34l2.43.98 2-3.46-2.06-1.6c.08-.43.13-.88.13-1.34z"/></svg>
+    <h1 id="boardTitle">嘉義扶輪社活動報名1.0</h1>
+    <div class="sub" id="boardSub">點「我要報名」即可上榜，名單即時更新</div>
+    <div class="statusbar">
+      <span class="dot live"></span><span id="statusText">名單已同步</span>
+      <button id="refreshBtn">↻ 重新整理</button>
+    </div>
+  </header>
+
+  <div class="toolbar">
+    <div class="seg">
+      <button id="segUpcoming" class="on">即將舉行</button>
+      <button id="segAll">全部場次</button>
+    </div>
+    <label class="admin" id="adminToggle">
+      管理場次<span class="switch" id="adminSwitch"></span>
+    </label>
+  </div>
+
+  <div id="board"></div>
+
+  <div class="footnote">
+    把這個頁面連結貼到 Line 群,社友打開就能直接報名。<br>
+    所有報名資料由開啟此頁面的人共用,彼此都看得到。
+  </div>
+</div>
+
+<div class="modal" id="exportModal">
+  <div class="modal-box">
+    <div class="modal-head">
+      <strong id="exportTitle">備份資料</strong>
+      <button id="exportClose" class="x">✕</button>
+    </div>
+    <div class="modal-sub" id="exportMeta"></div>
+    <textarea id="exportText" readonly spellcheck="false"></textarea>
+    <div class="modal-acts">
+      <button class="btn primary" id="exportCopy">複製全部</button>
+      <button class="btn ghost" id="exportDownload">下載檔案</button>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-app.js";
+import { getFirestore, doc, getDoc, setDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyB0K56cGlcsQpy6XERoy57yE4aFGoLrPiU",
+  authDomain: "rotary-signup-f8ac9.firebaseapp.com",
+  projectId: "rotary-signup-f8ac9",
+  storageBucket: "rotary-signup-f8ac9.firebasestorage.app",
+  messagingSenderId: "1098679765616",
+  appId: "1:1098679765616:web:e70ea3d580dcecc535c2b5"
+};
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+
+/* ============ 共享儲存封裝（Firestore,容錯） ============
+   資料存在 Firestore 的 store 集合,每筆文件 id = key,欄位 value = 內容陣列。 */
+async function sget(key, fallback){
+  try{ const snap = await getDoc(doc(db,'store',key)); return snap.exists() ? snap.data().value : fallback; }
+  catch(e){ return fallback; }
+}
+async function sset(key, val){
+  try{ await setDoc(doc(db,'store',key), {value: val}); return true; }
+  catch(e){ flashStatus('儲存失敗,請再試一次'); return false; }
+}
+async function sdel(key){ try{ await deleteDoc(doc(db,'store',key)); }catch(e){} }
+
+/* 個人標記（只存本機,只有自己看得到自己報的名） */
+function getMine(){ try{ return JSON.parse(localStorage.getItem('rotary_mine')||'[]'); }catch(e){ return []; } }
+function addMine(id){ const m=getMine(); if(!m.includes(id)){ m.push(id); try{ localStorage.setItem('rotary_mine', JSON.stringify(m)); }catch(e){} } }
+let MINE = [];
+
+/* ============ 資料模型 ============
+   activities (shared): [{id,title,date,time,location,capacity,note}]
+   signups:<actId> (shared): [{id,name,party,note,ts}]
+   —— 每個場次的報名各自一把 key，避免不同場次互相覆蓋。
+*/
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+const esc = s => String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+let adminMode = false;
+let filterMode = 'upcoming';
+let openForm = null;     // 哪個場次的報名表單開著
+let editing = null;      // {actId, signupId} 正在編輯報名
+let editingAct = null;   // 正在編輯的場次 id
+let lastHash = '';
+let busy = false;        // 動作進行中,擋掉重複觸發(避免連點送出多筆)
+
+/* 本地快取:畫面一律從快取繪製(瞬間反應),只有真正讀寫雲端時才連線 */
+let ACTS = [];           // 場次快取
+let SIGNUPS = {};        // 各場次報名快取 {actId: [...]}
+
+function loadActivities(){ return ACTS; }
+function loadSignups(actId){ return SIGNUPS[actId] || []; }
+
+/* 從雲端重抓最新資料到快取,再重繪(背景同步 / 手動刷新用) */
+async function refresh(){
+  ACTS = await sget('activities', []);
+  const map = {};
+  for(const a of ACTS){ map[a.id] = await sget('signups:'+a.id, []); }
+  SIGNUPS = map;
+  await render(false);
+}
+
+/* ============ 操作 ============ */
+async function addSignup(actId, name, party, note){
+  if(!name.trim() || busy) return;
+  busy = true;
+  try{
+    const list = await sget('signups:'+actId, []);   // 寫入前重抓雲端最新,降低覆蓋
+    const id = uid();
+    list.push({id, name:name.trim(), party:Math.max(1,parseInt(party)||1), note:(note||'').trim(), ts:Date.now()});
+    if(await sset('signups:'+actId, list)){ SIGNUPS[actId]=list; addMine(id); MINE=getMine(); }
+    openForm = null; editing = null;
+    await render(true);
+  } finally { busy = false; }
+}
+async function updateSignup(actId, signupId, name, party, note){
+  if(busy) return; busy = true;
+  try{
+    const list = await sget('signups:'+actId, []);
+    const it = list.find(x=>x.id===signupId); if(!it) return;
+    it.name=name.trim(); it.party=Math.max(1,parseInt(party)||1); it.note=(note||'').trim();
+    if(await sset('signups:'+actId, list)) SIGNUPS[actId]=list;
+    editing = null; openForm = null;
+    await render(true);
+  } finally { busy = false; }
+}
+async function removeSignup(actId, signupId, label){
+  if(busy) return;
+  if(!confirm('確定刪除「'+label+'」的報名?')) return;
+  busy = true;
+  try{
+    const list = (await sget('signups:'+actId, [])).filter(x=>x.id!==signupId);
+    if(await sset('signups:'+actId, list)) SIGNUPS[actId]=list;
+    await render(true);
+  } finally { busy = false; }
+}
+async function addActivity(a){
+  if(busy) return; busy = true;
+  try{
+    const list = await sget('activities', []);
+    list.push({id:uid(), title:a.title, date:a.date, time:a.time, location:a.location, capacity:parseInt(a.capacity)||0, note:a.note});
+    if(await sset('activities', list)) ACTS=list;
+    await render(true);
+  } finally { busy = false; }
+}
+async function deleteActivity(actId, title){
+  if(busy) return;
+  if(!confirm('刪除整個場次「'+title+'」?\n該場次所有報名也會一併刪除。')) return;
+  busy = true;
+  try{
+    const list = (await sget('activities', [])).filter(x=>x.id!==actId);
+    if(await sset('activities', list)) ACTS=list;
+    await sdel('signups:'+actId); delete SIGNUPS[actId];
+    await render(true);
+  } finally { busy = false; }
+}
+async function updateActivity(actId, data){
+  if(busy) return; busy = true;
+  try{
+    const list = await sget('activities', []);
+    const it = list.find(x=>x.id===actId); if(!it) return;
+    it.title = (data.title||'').trim() || '未命名活動';
+    it.date = data.date; it.time = data.time;
+    it.location = (data.location||'').trim();
+    it.capacity = parseInt(data.capacity)||0;
+    it.note = (data.note||'').trim();
+    if(await sset('activities', list)) ACTS=list;
+    editingAct = null;
+    await render(true);
+  } finally { busy = false; }
+}
+
+/* ============ 匯出備份 ============ */
+async function exportBackup(){
+  const meta = document.getElementById('exportMeta');
+  const ta = document.getElementById('exportText');
+  meta.textContent = '讀取中…';
+  ta.value = '';
+  openModal();
+  try{
+    const activities = await loadActivities();
+    const signups = {};
+    let total = 0;
+    // 逐場次抓報名
+    const keys = activities.map(a=>'signups:'+a.id);
+    for(const key of keys){
+      const actId = key.replace(/^signups:/,'');
+      const list = await loadSignups(actId);
+      signups[actId] = list;
+      total += list.length;
+    }
+    const backup = { schema:'rotary-signup', version:1, exportedAt:new Date().toISOString(), activities, signups };
+    ta.value = JSON.stringify(backup, null, 2);
+    meta.textContent = '場次 ' + activities.length + ' 筆 · 報名 ' + total + ' 筆 · ' + new Date().toLocaleString();
+    ta.focus(); ta.select();
+  }catch(e){
+    meta.textContent = '匯出失敗,請重試。';
+  }
+}
+function openModal(){ document.getElementById('exportModal').classList.add('open'); }
+function closeModal(){ document.getElementById('exportModal').classList.remove('open'); }
+document.getElementById('exportClose').onclick = closeModal;
+document.getElementById('exportModal').onclick = (e)=>{ if(e.target.id==='exportModal') closeModal(); };
+document.getElementById('exportCopy').onclick = async function(){
+  const ta = document.getElementById('exportText');
+  ta.focus(); ta.select();
+  let ok=false;
+  try{ await navigator.clipboard.writeText(ta.value); ok=true; }
+  catch(e){ try{ ok=document.execCommand('copy'); }catch(_){} }
+  this.textContent = ok ? '已複製 ✓' : '請手動長按全選複製';
+  setTimeout(()=>{ this.textContent='複製全部'; }, 2000);
+};
+document.getElementById('exportDownload').onclick = function(){
+  try{
+    const blob = new Blob([document.getElementById('exportText').value], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'rotary-signup-backup-'+new Date().toISOString().slice(0,10)+'.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 1000);
+  }catch(e){ alert('此環境不支援下載,請改用「複製全部」。'); }
+};
+
+/* ============ 工具 ============ */
+function totalHeads(signups){ return signups.reduce((s,x)=>s+(x.party||1),0); }
+function isPast(a){
+  if(!a.date) return false;
+  const d = new Date(a.date + 'T' + (a.time||'23:59'));
+  return d.getTime() < Date.now() - 3*3600*1000; // 過了 3 小時才算過去
+}
+function fmtDate(a){
+  if(!a.date) return '日期待定';
+  const d = new Date(a.date+'T00:00');
+  const wd = ['日','一','二','三','四','五','六'][d.getDay()];
+  const md = (d.getMonth()+1)+'/'+d.getDate();
+  return md + '（' + wd + '）' + (a.time? ' '+a.time : '');
+}
+
+/* ============ 畫面 ============ */
+let statusTimer=null;
+function flashStatus(msg){
+  const el=document.getElementById('statusText'); if(!el)return;
+  el.textContent=msg; clearTimeout(statusTimer);
+  statusTimer=setTimeout(()=>{el.textContent='名單已同步';},2200);
+}
+
+async function render(force){
+  // 若有人正在打字 / 表單開著，避免覆蓋（除非是自己操作觸發的 force）
+  const ae = document.activeElement;
+  const typing = ae && (ae.tagName==='INPUT'||ae.tagName==='TEXTAREA');
+  if(!force && (typing || openForm || editing || editingAct)) return;
+
+  const acts = await loadActivities();
+  // 一次抓齊各場次名單
+  const signupsMap = {};
+  for(const a of acts){ signupsMap[a.id] = await loadSignups(a.id); }
+
+  const hash = JSON.stringify({acts, signupsMap, adminMode, filterMode, openForm, editing, editingAct, MINE});
+  if(!force && hash===lastHash) return;
+  lastHash = hash;
+
+  acts.sort((x,y)=> (x.date||'9999').localeCompare(y.date||'9999') || (x.time||'').localeCompare(y.time||''));
+  let shown = acts;
+  if(filterMode==='upcoming') shown = acts.filter(a=>!isPast(a));
+
+  const board = document.getElementById('board');
+  let html = '';
+
+  if(shown.length===0){
+    html += '<div class="empty-board">'
+      + (acts.length===0 ? '目前還沒有任何場次。<br>打開上方「管理場次」即可新增。'
+                         : '沒有即將舉行的場次。<br>切到「全部場次」可查看過去活動。')
+      + '</div>';
+  }
+
+  for(const a of shown){
+    const su = signupsMap[a.id] || [];
+    const heads = totalHeads(su);
+    const cap = a.capacity||0;
+    const full = cap>0 && heads>=cap;
+    const pct = cap>0 ? Math.min(100, Math.round(heads/cap*100)) : 0;
+    const past = isPast(a);
+
+    html += '<div class="card'+(past?' past':'')+'" data-act="'+a.id+'">';
+
+    // 編輯場次表單（管理模式）
+    if(adminMode && editingAct===a.id){
+      html += '<div class="editsession" data-editact="'+a.id+'">'
+        + '<h3>編輯場次</h3>'
+        + '<input class="es_title" value="'+esc(a.title||'')+'" placeholder="活動名稱" maxlength="40">'
+        + '<div class="row2"><input class="es_date" type="date" value="'+esc(a.date||'')+'"><input class="es_time" type="time" value="'+esc(a.time||'')+'"></div>'
+        + '<input class="es_loc" value="'+esc(a.location||'')+'" placeholder="地點（選填）" maxlength="40">'
+        + '<input class="es_cap" type="number" min="0" value="'+(a.capacity||0)+'" placeholder="名額上限（0 = 不限）">'
+        + '<textarea class="es_note" placeholder="說明 / 備註（選填）" maxlength="200">'+esc(a.note||'')+'</textarea>'
+        + '<div class="formacts"><button class="btn primary" data-save-act="'+a.id+'">儲存變更</button>'
+        + '<button class="btn ghost" data-cancel-act="1">取消</button></div>'
+        + '</div></div>';
+      continue;
+    }
+
+    html += '<div class="chead">';
+    if(adminMode){
+      html += '<div class="adminbar">'
+        + '<button class="abtn edit" data-edit-act="'+a.id+'">✎ 編輯場次</button>'
+        + '<button class="abtn del" data-del-act="'+a.id+'">🗑 刪除</button>'
+        + '</div>';
+    }
+    html += '<span class="when'+(past?' badge-past':'')+'">'+esc(fmtDate(a))+(past?' · 已結束':'')+'</span>';
+    html += '<h2>'+esc(a.title||'未命名活動')+'</h2>';
+    if(a.location) html += '<div class="meta"><span>📍 '+esc(a.location)+'</span></div>';
+    if(a.note) html += '<div class="note">'+esc(a.note)+'</div>';
+
+    html += '<div class="capwrap"><div class="capline"><span>'+(cap>0?'報名人數':'已報名')+'</span>'
+          + '<b>'+heads+(cap>0?(' / '+cap):'')+' 人</b></div>';
+    if(cap>0) html += '<div class="capbar'+(full?' full':'')+'"><i style="width:'+pct+'%"></i></div>';
+    html += '</div></div>';
+
+    // 名單
+    html += '<ol class="list">';
+    if(su.length===0){
+      html += '<li class="empty">還沒有人報名,當第一個 👋</li>';
+    } else {
+      su.forEach((s,i)=>{
+        if(editing && editing.actId===a.id && editing.signupId===s.id){
+          html += '<li><span class="idx">'+(i+1)+'</span><div class="form open" style="flex:1" data-editform="'+a.id+'|'+s.id+'">'
+            + '<div class="row2"><input class="name" value="'+esc(s.name)+'" maxlength="20">'
+            + '<input class="party" type="number" min="1" value="'+(s.party||1)+'"></div>'
+            + '<input class="enote" value="'+esc(s.note||'')+'" placeholder="備註（選填）" maxlength="40">'
+            + '<div class="formacts"><button class="btn primary" data-save-edit>儲存</button>'
+            + '<button class="btn ghost" data-cancel-edit>取消</button></div></div></li>';
+        } else {
+          html += '<li><span class="idx">'+(i+1)+'</span>';
+          html += '<span class="nm">'+esc(s.name)+'</span>';
+          if((s.party||1)>1) html += '<span class="plus">+'+(s.party||1)+'</span>';
+          if(s.note) html += '<span class="rownote">'+esc(s.note)+'</span>';
+          html += '<span class="acts"><button data-edit="'+a.id+'|'+s.id+'">改</button>'
+                + '<button data-rm="'+a.id+'|'+s.id+'|'+esc(s.name)+'">刪</button></span></li>';
+        }
+      });
+    }
+    html += '</ol>';
+
+    // 報名表單
+    const formOpen = openForm===a.id;
+    html += '<div class="cfoot">';
+    if(!formOpen){
+      html += '<button class="addbtn" data-open="'+a.id+'">＋ 我要報名'+(full?'（已額滿,候補）':'')+'</button>';
+    } else {
+      html += '<div class="form open" data-addform="'+a.id+'">'
+        + '<div class="field-label">姓名</div>'
+        + '<div class="row2"><input class="name" placeholder="你的名字" maxlength="20" autofocus>'
+        + '<input class="party" type="number" min="1" value="1" title="含本人共幾位"></div>'
+        + '<div class="field-label">同行人數含本人,例如帶眷屬填 2</div>'
+        + '<input class="enote" placeholder="備註（選填,例:晚到 / 吃素）" maxlength="40">'
+        + '<div class="formacts"><button class="btn primary" data-submit="'+a.id+'">送出報名</button>'
+        + '<button class="btn ghost" data-cancel="'+a.id+'">取消</button></div></div>';
+    }
+    html += '</div></div>';
+  }
+
+  // 管理：新增場次
+  if(adminMode){
+    html += '<div class="newsession"><h3>＋ 新增場次</h3><div class="grid" id="newSessionForm">'
+      + '<input id="ns_title" placeholder="活動名稱（例:8 月例會、淨灘活動）" maxlength="40">'
+      + '<div class="row2"><input id="ns_date" type="date"><input id="ns_time" type="time"></div>'
+      + '<input id="ns_loc" placeholder="地點（選填）" maxlength="40">'
+      + '<div class="row2"><input id="ns_cap" type="number" min="0" placeholder="名額上限（0 = 不限）"></div>'
+      + '<textarea id="ns_note" placeholder="說明 / 備註（選填）" maxlength="200"></textarea>'
+      + '<button class="btn primary" id="ns_add">建立場次</button>'
+      + '</div></div>';
+
+    html += '<div class="newsession" style="margin-top:12px">'
+      + '<h3 style="margin-bottom:6px">資料備份</h3>'
+      + '<div style="font-size:12.5px;color:var(--muted);margin-bottom:10px;line-height:1.55">'
+      + '搬到正式系統前,先按此匯出完整 JSON 備份。<br>提醒:取消發布會清空資料,務必「先匯出、再改版/取消發布」。</div>'
+      + '<button class="btn ghost" id="exportBtn" style="width:100%;background:#eaf1fb;color:var(--azure)">⬇ 匯出備份（JSON）</button>'
+      + '</div>';
+  }
+
+  board.innerHTML = html;
+  bindEvents(board);
+}
+
+function bindEvents(board){
+  board.querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>{openForm=b.dataset.open; editing=null; render(true);});
+  board.querySelectorAll('[data-cancel]').forEach(b=>b.onclick=()=>{openForm=null; render(true);});
+  board.querySelectorAll('[data-submit]').forEach(b=>b.onclick=()=>{
+    if(busy) return;
+    const f=board.querySelector('[data-addform="'+b.dataset.submit+'"]');
+    b.disabled=true; b.textContent='送出中…';
+    addSignup(b.dataset.submit, f.querySelector('.name').value, f.querySelector('.party').value, f.querySelector('.enote').value);
+  });
+  board.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{const [a,s]=b.dataset.edit.split('|'); editing={actId:a,signupId:s}; openForm=null; render(true);});
+  board.querySelectorAll('[data-cancel-edit]').forEach(b=>b.onclick=()=>{editing=null; render(true);});
+  board.querySelectorAll('[data-save-edit]').forEach(b=>b.onclick=()=>{
+    if(busy) return;
+    const wrap=b.closest('[data-editform]'); const [a,s]=wrap.dataset.editform.split('|');
+    b.disabled=true; b.textContent='儲存中…';
+    updateSignup(a,s, wrap.querySelector('.name').value, wrap.querySelector('.party').value, wrap.querySelector('.enote').value);
+  });
+  board.querySelectorAll('[data-rm]').forEach(b=>b.onclick=()=>{const [a,s,nm]=b.dataset.rm.split('|'); removeSignup(a,s,nm);});
+  board.querySelectorAll('[data-del-act]').forEach(b=>b.onclick=()=>{
+    const card=b.closest('.card'); const t=card.querySelector('h2').textContent;
+    deleteActivity(b.dataset.delAct, t);
+  });
+  board.querySelectorAll('[data-edit-act]').forEach(b=>b.onclick=()=>{editingAct=b.dataset.editAct; openForm=null; editing=null; render(true);});
+  board.querySelectorAll('[data-cancel-act]').forEach(b=>b.onclick=()=>{editingAct=null; render(true);});
+  board.querySelectorAll('[data-save-act]').forEach(b=>b.onclick=()=>{
+    if(busy) return;
+    const wrap=board.querySelector('[data-editact="'+b.dataset.saveAct+'"]');
+    b.disabled=true; b.textContent='儲存中…';
+    updateActivity(b.dataset.saveAct, {
+      title: wrap.querySelector('.es_title').value,
+      date: wrap.querySelector('.es_date').value,
+      time: wrap.querySelector('.es_time').value,
+      location: wrap.querySelector('.es_loc').value,
+      capacity: wrap.querySelector('.es_cap').value,
+      note: wrap.querySelector('.es_note').value
+    });
+  });
+  const nsAdd=board.querySelector('#ns_add');
+  const expBtn=board.querySelector('#exportBtn');
+  if(expBtn) expBtn.onclick=exportBackup;
+  if(nsAdd) nsAdd.onclick=()=>{
+    if(busy) return;
+    const t=board.querySelector('#ns_title').value.trim();
+    if(!t){ board.querySelector('#ns_title').focus(); return; }
+    nsAdd.disabled=true; nsAdd.textContent='建立中…';
+    addActivity({
+      title:t, date:board.querySelector('#ns_date').value, time:board.querySelector('#ns_time').value,
+      location:board.querySelector('#ns_loc').value.trim(), capacity:board.querySelector('#ns_cap').value,
+      note:board.querySelector('#ns_note').value.trim()
+    });
+  };
+}
+
+/* ============ 控制列 ============ */
+document.getElementById('segUpcoming').onclick=function(){filterMode='upcoming';this.classList.add('on');document.getElementById('segAll').classList.remove('on');render(true);};
+document.getElementById('segAll').onclick=function(){filterMode='all';this.classList.add('on');document.getElementById('segUpcoming').classList.remove('on');render(true);};
+document.getElementById('adminToggle').onclick=function(){
+  adminMode=!adminMode;
+  document.getElementById('adminSwitch').classList.toggle('on',adminMode);
+  render(true);
+};
+document.getElementById('refreshBtn').onclick=()=>{flashStatus('更新中…'); refresh().then(()=>flashStatus('已更新'));};
+
+/* ============ 即時刷新（輪詢） ============ */
+async function poll(){ if(document.visibilityState==='visible' && !busy) await refresh(); }
+document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible' && !busy) refresh(); });
+
+(async function init(){
+  MINE = getMine();
+  await refresh();
+  setInterval(poll, 6000);   // 每 6 秒從雲端同步一次
+})();
+</script>

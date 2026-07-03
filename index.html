@@ -5,6 +5,11 @@
 -->
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<title>報名連結</title>
+<!-- Line/社群分享的預覽卡：只顯示「報名連結」，描述留空避免撈到頁面內文 -->
+<meta name="description" content="">
+<meta property="og:title" content="報名連結">
+<meta property="og:description" content="">
 <style>
   :root{
     --azure:#17468f;
@@ -82,6 +87,7 @@
     background:#eaf1fb;border-radius:6px;padding:3px 8px;letter-spacing:.2px;
   }
   .chead .badge-past{background:#f0f1f3;color:var(--muted)}
+  .chead .closed-tag{display:inline-block;margin-left:8px;font-size:12px;font-weight:700;color:var(--danger);background:#fdedec;border-radius:6px;padding:3px 8px;vertical-align:middle}
   .chead h2{margin:9px 0 3px;font-size:17px;font-weight:800;line-height:1.3}
   .chead .meta{font-size:13px;color:var(--muted);display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:5px}
   .chead .note{font-size:12.5px;color:var(--muted);margin-top:7px;white-space:pre-wrap}
@@ -130,6 +136,7 @@
     border-radius:10px;padding:11px;font-size:14.5px;font-weight:700;cursor:pointer;
   }
   .addbtn:active{transform:scale(.995)}
+  .addbtn.closed{border-style:solid;border-color:var(--line);background:#f3f4f6;color:#9aa3b0;cursor:not-allowed}
   .form{display:none;flex-direction:column;gap:9px}
   .form.open{display:flex}
   .form .row2{display:flex;gap:9px}
@@ -160,6 +167,8 @@
     width:100%;border:1px solid var(--line);border-radius:9px;padding:10px 11px;font-size:15px;font-family:inherit;
   }
   .newsession input:focus,.newsession textarea:focus{outline:none;border-color:var(--azure-bright);box-shadow:0 0 0 3px rgba(31,91,181,.12)}
+  .newsession select,.editsession select{width:100%;border:1px solid var(--line);border-radius:9px;padding:10px 8px;font-size:15px;font-family:inherit;background:#fff;color:var(--ink)}
+  .newsession select:focus,.editsession select:focus{outline:none;border-color:var(--azure-bright);box-shadow:0 0 0 3px rgba(31,91,181,.12)}
 
   .adminbar{display:flex;gap:8px;margin-bottom:11px}
   .abtn{font-size:12.5px;font-weight:700;border-radius:8px;padding:6px 11px;cursor:pointer;border:1px solid var(--line);background:#fff}
@@ -313,6 +322,7 @@ async function refresh(){
 /* ============ 操作 ============ */
 async function addSignup(actId, name, party, note){
   if(!name.trim() || busy) return;
+  if(isClosed(ACTS.find(x=>x.id===actId))){ flashStatus('報名已截止'); openForm=null; await render(true); return; }
   busy = true;
   try{
     const list = await sget('signups:'+actId, []);   // 寫入前重抓雲端最新,降低覆蓋
@@ -348,7 +358,7 @@ async function addActivity(a){
   if(busy) return; busy = true;
   try{
     const list = await sget('activities', []);
-    list.push({id:uid(), title:a.title, date:a.date, time:a.time, location:a.location, capacity:parseInt(a.capacity)||0, note:a.note});
+    list.push({id:uid(), title:a.title, date:a.date, time:a.time, location:a.location, capacity:parseInt(a.capacity)||0, note:a.note, deadline:a.deadline||'', signupState:''});
     if(await sset('activities', list)) ACTS=list;
     await render(true);
   } finally { busy = false; }
@@ -374,8 +384,20 @@ async function updateActivity(actId, data){
     it.location = (data.location||'').trim();
     it.capacity = parseInt(data.capacity)||0;
     it.note = (data.note||'').trim();
+    it.deadline = data.deadline||'';
     if(await sset('activities', list)) ACTS=list;
     editingAct = null;
+    await render(true);
+  } finally { busy = false; }
+}
+/* 管理者手動關閉/開放報名（覆寫截止時間） */
+async function toggleClose(actId, next){
+  if(busy) return; busy = true;
+  try{
+    const list = await sget('activities', []);
+    const it = list.find(x=>x.id===actId); if(!it) return;
+    it.signupState = next;   // 'open' | 'closed'
+    if(await sset('activities', list)) ACTS=list;
     await render(true);
   } finally { busy = false; }
 }
@@ -445,6 +467,45 @@ function fmtDate(a){
   const md = (d.getMonth()+1)+'/'+d.getDate();
   return md + '（' + wd + '）' + (a.time? ' '+a.time : '');
 }
+/* 報名是否已截止：手動覆寫優先(closed/open)，否則看截止時間到了沒 */
+function isClosed(a){
+  if(!a) return false;
+  if(a.signupState==='closed') return true;
+  if(a.signupState==='open') return false;
+  if(a.deadline){ const t=new Date(a.deadline).getTime(); if(!isNaN(t) && Date.now()>t) return true; }
+  return false;
+}
+function fmtDeadline(dl){
+  const d=new Date(dl); if(isNaN(d)) return '';
+  const wd=['日','一','二','三','四','五','六'][d.getDay()];
+  const p=n=>String(n).padStart(2,'0');
+  return (d.getMonth()+1)+'/'+d.getDate()+'（'+wd+'）'+p(d.getHours())+':'+p(d.getMinutes());
+}
+/* 時/分下拉選單選項；第一個是提示用的空值(label) */
+function numOpts(from,to,step,sel,label){
+  let s='<option value="">'+label+'</option>';
+  for(let v=from; v<=to; v+=step){
+    s+='<option value="'+v+'"'+(sel!=='' && +sel===v?' selected':'')+'>'+String(v).padStart(2,'0')+'</option>';
+  }
+  return s;
+}
+/* 把字串片段轉成下拉預選值：空或未定義＝未選 */
+function toSel(x){ return (x===undefined||x==='')?'':+x; }
+/* 由 時/分 下拉組回 "HH:mm"；都沒選＝空字串 */
+function mkTime(h,mi){
+  if(h==='' && mi==='') return '';
+  const p=n=>String(n).padStart(2,'0');
+  return p(h===''?0:+h)+':'+p(mi===''?0:+mi);
+}
+/* 由 日期＋時＋分 組回截止字串；沒選日期＝不設截止，時分沒選＝當天 23:50 */
+function mkDeadline(date,h,mi){
+  if(!date) return '';
+  const p=n=>String(n).padStart(2,'0');
+  let hh,mm;
+  if(h==='' && mi===''){ hh=23; mm=50; }
+  else { hh=h===''?0:+h; mm=mi===''?0:+mi; }
+  return date+'T'+p(hh)+':'+p(mm);
+}
 
 /* ============ 畫面 ============ */
 let statusTimer=null;
@@ -465,7 +526,7 @@ async function render(force){
   const signupsMap = {};
   for(const a of acts){ signupsMap[a.id] = await loadSignups(a.id); }
 
-  const hash = JSON.stringify({acts, signupsMap, adminMode, filterMode, openForm, editing, editingAct, MINE, expanded:[...expanded]});
+  const hash = JSON.stringify({acts, signupsMap, adminMode, filterMode, openForm, editing, editingAct, MINE, expanded:[...expanded], closed:acts.map(isClosed)});
   if(!force && hash===lastHash) return;
   lastHash = hash;
 
@@ -490,17 +551,22 @@ async function render(force){
     const full = cap>0 && heads>=cap;
     const pct = cap>0 ? Math.min(100, Math.round(heads/cap*100)) : 0;
     const past = isPast(a);
+    const closed = isClosed(a);
 
     html += '<div class="card'+(past?' past':'')+'" data-act="'+a.id+'">';
 
     // 編輯場次表單（管理模式）
     if(adminMode && editingAct===a.id){
+      const et=(a.time||'').split(':');                 // 活動時間 [時,分]
+      const dl=(a.deadline||'').split('T'); const dt=(dl[1]||'').split(':');  // 截止 日期 / [時,分]
       html += '<div class="editsession" data-editact="'+a.id+'">'
         + '<h3>編輯場次</h3>'
         + '<input class="es_title" value="'+esc(a.title||'')+'" placeholder="活動名稱" maxlength="40">'
-        + '<div class="row2"><input class="es_date" type="date" value="'+esc(a.date||'')+'"><input class="es_time" type="time" value="'+esc(a.time||'')+'"></div>'
+        + '<div class="row2"><input class="es_date" type="date" value="'+esc(a.date||'')+'" style="flex:1.4"><select class="es_h" style="flex:1">'+numOpts(0,23,1,toSel(et[0]),'時')+'</select><select class="es_mi" style="flex:1">'+numOpts(0,50,10,toSel(et[1]),'分')+'</select></div>'
         + '<input class="es_loc" value="'+esc(a.location||'')+'" placeholder="地點（選填）" maxlength="40">'
         + '<input class="es_cap" type="number" min="0" value="'+(a.capacity||0)+'" placeholder="名額上限（0 = 不限）">'
+        + '<div style="font-size:12px;color:var(--muted);margin:2px 0 -4px 2px">報名截止時間（選填,到時自動關閉報名）</div>'
+        + '<div class="row2"><input class="es_dl_date" type="date" value="'+esc(dl[0]||'')+'" style="flex:1.4"><select class="es_dl_h" style="flex:1">'+numOpts(0,23,1,toSel(dt[0]),'時')+'</select><select class="es_dl_mi" style="flex:1">'+numOpts(0,50,10,toSel(dt[1]),'分')+'</select></div>'
         + '<textarea class="es_note" placeholder="說明 / 備註（選填）" maxlength="200">'+esc(a.note||'')+'</textarea>'
         + '<div class="formacts"><button class="btn primary" data-save-act="'+a.id+'">儲存變更</button>'
         + '<button class="btn ghost" data-cancel-act="1">取消</button></div>'
@@ -512,12 +578,15 @@ async function render(force){
     if(adminMode){
       html += '<div class="adminbar">'
         + '<button class="abtn edit" data-edit-act="'+a.id+'">✎ 編輯場次</button>'
+        + '<button class="abtn'+(closed?' edit':' del')+'" data-toggle-close="'+a.id+'">'+(closed?'🔓 開放報名':'🔒 關閉報名')+'</button>'
         + '<button class="abtn del" data-del-act="'+a.id+'">🗑 刪除</button>'
         + '</div>';
     }
     html += '<span class="when'+(past?' badge-past':'')+'">'+esc(fmtDate(a))+(past?' · 已結束':'')+'</span>';
+    if(closed && !past) html += '<span class="closed-tag">🔒 報名已截止</span>';
     html += '<h2>'+esc(a.title||'未命名活動')+'</h2>';
     if(a.location) html += '<div class="meta"><span>📍 '+esc(a.location)+'</span></div>';
+    if(a.deadline && !closed && !past){ const dl=fmtDeadline(a.deadline); if(dl) html += '<div class="meta"><span>⏳ 報名至 '+esc(dl)+'</span></div>'; }
     if(a.note) html += '<div class="note">'+esc(a.note)+'</div>';
 
     html += '<div class="capwrap"><div class="capline"><span>'+(cap>0?'報名人數':'已報名')+'</span>'
@@ -561,9 +630,11 @@ async function render(force){
     html += '</ol>';
 
     // 報名表單
-    const formOpen = openForm===a.id;
+    const formOpen = openForm===a.id && !closed;
     html += '<div class="cfoot">';
-    if(!formOpen){
+    if(closed){
+      html += '<button class="addbtn closed" disabled>🔒 報名已截止</button>';
+    } else if(!formOpen){
       html += '<button class="addbtn" data-open="'+a.id+'">＋ 我要報名'+(full?'（已額滿,候補）':'')+'</button>';
     } else {
       html += '<div class="form open" data-addform="'+a.id+'">'
@@ -582,9 +653,11 @@ async function render(force){
   if(adminMode){
     html += '<div class="newsession"><h3>＋ 新增場次</h3><div class="grid" id="newSessionForm">'
       + '<input id="ns_title" placeholder="活動名稱（例:8 月例會、淨灘活動）" maxlength="40">'
-      + '<div class="row2"><input id="ns_date" type="date"><input id="ns_time" type="time"></div>'
+      + '<div class="row2"><input id="ns_date" type="date" style="flex:1.4"><select id="ns_h" style="flex:1">'+numOpts(0,23,1,'','時')+'</select><select id="ns_mi" style="flex:1">'+numOpts(0,50,10,'','分')+'</select></div>'
       + '<input id="ns_loc" placeholder="地點（選填）" maxlength="40">'
       + '<div class="row2"><input id="ns_cap" type="number" min="0" placeholder="名額上限（0 = 不限）"></div>'
+      + '<div style="font-size:12px;color:var(--muted);margin:2px 0 -4px 2px">報名截止時間（選填,到時自動關閉報名）</div>'
+      + '<div class="row2"><input id="ns_dl_date" type="date" style="flex:1.4"><select id="ns_dl_h" style="flex:1">'+numOpts(0,23,1,'','時')+'</select><select id="ns_dl_mi" style="flex:1">'+numOpts(0,50,10,'','分')+'</select></div>'
       + '<textarea id="ns_note" placeholder="說明 / 備註（選填）" maxlength="200"></textarea>'
       + '<button class="btn primary" id="ns_add">建立場次</button>'
       + '</div></div>';
@@ -629,6 +702,13 @@ function bindEvents(board){
     deleteActivity(b.dataset.delAct, t);
   });
   board.querySelectorAll('[data-edit-act]').forEach(b=>b.onclick=()=>{editingAct=b.dataset.editAct; openForm=null; editing=null; render(true);});
+  board.querySelectorAll('[data-toggle-close]').forEach(b=>b.onclick=()=>{
+    if(busy) return;
+    const id=b.dataset.toggleClose;
+    toggleClose(id, isClosed(ACTS.find(x=>x.id===id)) ? 'open' : 'closed');
+  });
+  // 活動本身的原生日期框：選完自動收起彈窗
+  board.querySelectorAll('input[type="date"]').forEach(d=>d.onchange=()=>{ try{ d.blur(); }catch(e){} });
   board.querySelectorAll('[data-cancel-act]').forEach(b=>b.onclick=()=>{editingAct=null; render(true);});
   board.querySelectorAll('[data-save-act]').forEach(b=>b.onclick=()=>{
     if(busy) return;
@@ -637,9 +717,10 @@ function bindEvents(board){
     updateActivity(b.dataset.saveAct, {
       title: wrap.querySelector('.es_title').value,
       date: wrap.querySelector('.es_date').value,
-      time: wrap.querySelector('.es_time').value,
+      time: mkTime(wrap.querySelector('.es_h').value, wrap.querySelector('.es_mi').value),
       location: wrap.querySelector('.es_loc').value,
       capacity: wrap.querySelector('.es_cap').value,
+      deadline: mkDeadline(wrap.querySelector('.es_dl_date').value, wrap.querySelector('.es_dl_h').value, wrap.querySelector('.es_dl_mi').value),
       note: wrap.querySelector('.es_note').value
     });
   });
@@ -652,8 +733,9 @@ function bindEvents(board){
     if(!t){ board.querySelector('#ns_title').focus(); return; }
     nsAdd.disabled=true; nsAdd.textContent='建立中…';
     addActivity({
-      title:t, date:board.querySelector('#ns_date').value, time:board.querySelector('#ns_time').value,
+      title:t, date:board.querySelector('#ns_date').value, time:mkTime(board.querySelector('#ns_h').value, board.querySelector('#ns_mi').value),
       location:board.querySelector('#ns_loc').value.trim(), capacity:board.querySelector('#ns_cap').value,
+      deadline:mkDeadline(board.querySelector('#ns_dl_date').value, board.querySelector('#ns_dl_h').value, board.querySelector('#ns_dl_mi').value),
       note:board.querySelector('#ns_note').value.trim()
     });
   };
@@ -669,9 +751,11 @@ document.getElementById('adminToggle').onclick=function(){
 };
 document.getElementById('refreshBtn').onclick=()=>{flashStatus('更新中…'); refresh().then(()=>flashStatus('已更新'));};
 
-/* ============ 即時刷新（輪詢） ============ */
-async function poll(){ if(document.visibilityState==='visible' && !busy) await refresh(); }
-document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible' && !busy) refresh(); });
+/* ============ 即時刷新（輪詢） ============
+   管理場次期間暫停背景同步：避免正在填「新增/編輯場次」時被重繪清空。
+   要看最新名單可手動按「↻ 重新整理」；關掉管理場次即自動恢復同步。 */
+async function poll(){ if(document.visibilityState==='visible' && !busy && !adminMode) await refresh(); }
+document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible' && !busy && !adminMode) refresh(); });
 
 (async function init(){
   MINE = getMine();

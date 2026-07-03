@@ -116,6 +116,12 @@
   }
   ol.list li .acts button:hover{background:#f0f1f3;color:var(--ink)}
   ol.list .empty{padding:14px 16px;color:#9aa3b0;font-size:13.5px;text-align:center;border:0}
+  ol.list li.togglerow{padding:0;justify-content:center}
+  ol.list li.togglerow button{
+    width:100%;border:0;background:transparent;color:var(--azure);
+    font-size:13px;font-weight:700;padding:10px 16px;cursor:pointer;
+  }
+  ol.list li.togglerow button:hover{background:#f3f8ff}
 
   /* ---- add signup form ---- */
   .cfoot{padding:11px 14px 14px;background:#fafbfc;border-top:1px solid var(--line)}
@@ -284,6 +290,9 @@ let editing = null;      // {actId, signupId} 正在編輯報名
 let editingAct = null;   // 正在編輯的場次 id
 let lastHash = '';
 let busy = false;        // 動作進行中,擋掉重複觸發(避免連點送出多筆)
+let expanded = new Set();// 使用者手動展開的場次 id(名單很長時預設收合)
+const COLLAPSE_THRESHOLD = 8;  // 名單超過此人數才提供收合
+const COLLAPSE_PREVIEW = 3;    // 收合時預覽前幾位
 
 /* 本地快取:畫面一律從快取繪製(瞬間反應),只有真正讀寫雲端時才連線 */
 let ACTS = [];           // 場次快取
@@ -456,7 +465,7 @@ async function render(force){
   const signupsMap = {};
   for(const a of acts){ signupsMap[a.id] = await loadSignups(a.id); }
 
-  const hash = JSON.stringify({acts, signupsMap, adminMode, filterMode, openForm, editing, editingAct, MINE});
+  const hash = JSON.stringify({acts, signupsMap, adminMode, filterMode, openForm, editing, editingAct, MINE, expanded:[...expanded]});
   if(!force && hash===lastHash) return;
   lastHash = hash;
 
@@ -516,12 +525,17 @@ async function render(force){
     if(cap>0) html += '<div class="capbar'+(full?' full':'')+'"><i style="width:'+pct+'%"></i></div>';
     html += '</div></div>';
 
-    // 名單
+    // 名單（人數多時預設收合,只露出前幾位）
+    const collapsible = su.length > COLLAPSE_THRESHOLD;
+    const editingHere = editing && editing.actId===a.id;   // 正在編輯此場次某筆,強制展開才看得到編輯框
+    const collapsed = collapsible && !expanded.has(a.id) && !editingHere;
     html += '<ol class="list">';
     if(su.length===0){
       html += '<li class="empty">還沒有人報名,當第一個 👋</li>';
     } else {
+      const showN = collapsed ? COLLAPSE_PREVIEW : su.length;
       su.forEach((s,i)=>{
+        if(i>=showN) return;
         if(editing && editing.actId===a.id && editing.signupId===s.id){
           html += '<li><span class="idx">'+(i+1)+'</span><div class="form open" style="flex:1" data-editform="'+a.id+'|'+s.id+'">'
             + '<div class="row2"><input class="name" value="'+esc(s.name)+'" maxlength="20">'
@@ -538,6 +552,11 @@ async function render(force){
                 + '<button data-rm="'+a.id+'|'+s.id+'|'+esc(s.name)+'">刪</button></span></li>';
         }
       });
+      if(collapsed){
+        html += '<li class="togglerow"><button data-toggle-list="'+a.id+'">顯示其餘 '+(su.length-COLLAPSE_PREVIEW)+' 人 ▾</button></li>';
+      } else if(collapsible && expanded.has(a.id)){
+        html += '<li class="togglerow"><button data-toggle-list="'+a.id+'">收合名單 ▴</button></li>';
+      }
     }
     html += '</ol>';
 
@@ -600,6 +619,11 @@ function bindEvents(board){
     updateSignup(a,s, wrap.querySelector('.name').value, wrap.querySelector('.party').value, wrap.querySelector('.enote').value);
   });
   board.querySelectorAll('[data-rm]').forEach(b=>b.onclick=()=>{const [a,s,nm]=b.dataset.rm.split('|'); removeSignup(a,s,nm);});
+  board.querySelectorAll('[data-toggle-list]').forEach(b=>b.onclick=()=>{
+    const id=b.dataset.toggleList;
+    if(expanded.has(id)) expanded.delete(id); else expanded.add(id);
+    render(true);
+  });
   board.querySelectorAll('[data-del-act]').forEach(b=>b.onclick=()=>{
     const card=b.closest('.card'); const t=card.querySelector('h2').textContent;
     deleteActivity(b.dataset.delAct, t);

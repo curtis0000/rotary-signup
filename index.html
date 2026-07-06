@@ -327,7 +327,7 @@ async function addSignup(actId, name, party, note){
   try{
     const list = await sget('signups:'+actId, []);   // 寫入前重抓雲端最新,降低覆蓋
     const id = uid();
-    list.push({id, name:name.trim(), party:Math.max(1,parseInt(party)||1), note:(note||'').trim(), ts:Date.now()});
+    list.push({id, name:name.trim(), party:normParty(party), note:(note||'').trim(), ts:Date.now()});
     if(await sset('signups:'+actId, list)){ SIGNUPS[actId]=list; addMine(id); MINE=getMine(); }
     openForm = null; editing = null;
     await render(true);
@@ -338,7 +338,7 @@ async function updateSignup(actId, signupId, name, party, note){
   try{
     const list = await sget('signups:'+actId, []);
     const it = list.find(x=>x.id===signupId); if(!it) return;
-    it.name=name.trim(); it.party=Math.max(1,parseInt(party)||1); it.note=(note||'').trim();
+    it.name=name.trim(); it.party=normParty(party); it.note=(note||'').trim();
     if(await sset('signups:'+actId, list)) SIGNUPS[actId]=list;
     editing = null; openForm = null;
     await render(true);
@@ -454,7 +454,8 @@ document.getElementById('exportDownload').onclick = function(){
 };
 
 /* ============ 工具 ============ */
-function totalHeads(signups){ return signups.reduce((s,x)=>s+(x.party||1),0); }
+function totalHeads(signups){ return signups.reduce((s,x)=>s+(x.party??1),0); }
+function normParty(v){ v=parseInt(v); return (isNaN(v)||v<0)?1:v; }  // 允許 0（不參加，不佔人數）；空白/無效視為 1
 function isPast(a){
   if(!a.date) return false;
   const d = new Date(a.date + 'T' + (a.time||'23:59'));
@@ -608,7 +609,7 @@ async function render(force){
         if(editing && editing.actId===a.id && editing.signupId===s.id){
           html += '<li><span class="idx">'+(i+1)+'</span><div class="form open" style="flex:1" data-editform="'+a.id+'|'+s.id+'">'
             + '<div class="row2"><input class="name" value="'+esc(s.name)+'" maxlength="20">'
-            + '<input class="party" type="number" min="1" value="'+(s.party||1)+'"></div>'
+            + '<input class="party" type="number" min="0" value="'+(s.party??1)+'"></div>'
             + '<input class="enote" value="'+esc(s.note||'')+'" placeholder="備註（選填）" maxlength="40">'
             + '<div class="formacts"><button class="btn primary" data-save-edit>儲存</button>'
             + '<button class="btn ghost" data-cancel-edit>取消</button></div></div></li>';
@@ -640,8 +641,8 @@ async function render(force){
       html += '<div class="form open" data-addform="'+a.id+'">'
         + '<div class="field-label">姓名</div>'
         + '<div class="row2"><input class="name" placeholder="你的名字" maxlength="20" autofocus>'
-        + '<input class="party" type="number" min="1" value="1" title="含本人共幾位"></div>'
-        + '<div class="field-label">同行人數含本人,例如帶眷屬填 2</div>'
+        + '<input class="party" type="number" min="0" value="1" title="含本人共幾位；不參加填 0"></div>'
+        + '<div class="field-label">同行人數含本人,例如帶眷屬填 2;不參加填 0(不佔人數)</div>'
         + '<input class="enote" placeholder="備註（選填,例:晚到 / 吃素）" maxlength="40">'
         + '<div class="formacts"><button class="btn primary" data-submit="'+a.id+'">送出報名</button>'
         + '<button class="btn ghost" data-cancel="'+a.id+'">取消</button></div></div>';

@@ -229,7 +229,7 @@
     </label>
   </div>
 
-  <div id="board"></div>
+  <div id="board"><div class="empty-board">載入名單中…</div></div>
 
   <div class="footnote">
     把這個頁面連結貼到 Line 群,社友打開就能直接報名。<br>
@@ -254,7 +254,7 @@
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-app.js";
-import { getFirestore, doc, getDoc, setDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-firestore.js";
+import { getFirestore, doc, getDoc, setDoc, deleteDoc, collection, getDocsFromServer } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyB0K56cGlcsQpy6XERoy57yE4aFGoLrPiU",
@@ -310,13 +310,26 @@ let SIGNUPS = {};        // 各場次報名快取 {actId: [...]}
 function loadActivities(){ return ACTS; }
 function loadSignups(actId){ return SIGNUPS[actId] || []; }
 
-/* 從雲端重抓最新資料到快取,再重繪(背景同步 / 手動刷新用) */
+/* 從雲端重抓最新資料到快取,再重繪(背景同步 / 手動刷新用)。
+   一趟查詢抓齊 store 全部文件(場次＋所有名單),避免逐場往返在行動網路上中途斷線。
+   失敗時保留原本快取(寧可顯示舊名單,也不要錯誤地歸零),回傳是否成功。 */
 async function refresh(){
-  ACTS = await sget('activities', []);
+  let snap;
+  // 一定要用 getDocsFromServer:一般 getDocs 在斷線時會默默回傳空的本機快取,
+  // 畫面就會錯誤地歸零;強制讀伺服器,連不上就丟錯誤,走「保留舊資料」路徑。
+  try{ snap = await getDocsFromServer(collection(db,'store')); }
+  catch(e){ statusIdle='⚠ 未能更新,顯示的可能是舊名單'; flashStatus(statusIdle); return false; }
+  const acts = [];
   const map = {};
-  for(const a of ACTS){ map[a.id] = await sget('signups:'+a.id, []); }
+  snap.forEach(d=>{
+    if(d.id==='activities') acts.push(...(d.data().value||[]));
+    else if(d.id.startsWith('signups:')) map[d.id.slice('signups:'.length)] = d.data().value||[];
+  });
+  ACTS = acts;
   SIGNUPS = map;
+  statusIdle='名單已同步';
   await render(false);
+  return true;
 }
 
 /* ============ 操作 ============ */
@@ -510,10 +523,11 @@ function mkDeadline(date,h,mi){
 
 /* ============ 畫面 ============ */
 let statusTimer=null;
+let statusIdle='名單已同步';   // 閒置時顯示的同步狀態(更新失敗期間會換成警示文字)
 function flashStatus(msg){
   const el=document.getElementById('statusText'); if(!el)return;
   el.textContent=msg; clearTimeout(statusTimer);
-  statusTimer=setTimeout(()=>{el.textContent='名單已同步';},2200);
+  statusTimer=setTimeout(()=>{el.textContent=statusIdle;},2200);
 }
 
 async function render(force){
@@ -750,7 +764,7 @@ document.getElementById('adminToggle').onclick=function(){
   document.getElementById('adminSwitch').classList.toggle('on',adminMode);
   render(true);
 };
-document.getElementById('refreshBtn').onclick=()=>{flashStatus('更新中…'); refresh().then(()=>flashStatus('已更新'));};
+document.getElementById('refreshBtn').onclick=()=>{flashStatus('更新中…'); refresh().then(ok=>{ if(ok) flashStatus('已更新'); });};
 
 /* ============ 即時刷新（輪詢） ============
    管理場次期間暫停背景同步：避免正在填「新增/編輯場次」時被重繪清空。
@@ -761,6 +775,6 @@ document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==
 (async function init(){
   MINE = getMine();
   await refresh();
-  setInterval(poll, 6000);   // 每 6 秒從雲端同步一次
+  setInterval(poll, 15000);  // 每 15 秒從雲端同步一次(降低 Firestore 免費額度消耗)
 })();
 </script>

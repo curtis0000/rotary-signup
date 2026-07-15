@@ -10,6 +10,8 @@
 - ✅ 效能/防呆：改為本機快取繪製（互動瞬間反應）、寫入上鎖 + 「送出中…」防止連點重複報名，已實測順暢。
 - ✅ 已部署到 GitHub Pages（repo `curtis0000/rotary-signup`，`main` 分支根目錄）。
 - ✅ 清掉桌面多餘的原始 uuid 檔，資料夾現只剩 `index.html`、`CLAUDE.md`、`PROGRESS.md`、`.gitignore`。
+- ✅ 報名人數可填 **0**：用來登記「不參加」——名字與備註照樣顯示，但不計入總人數（`normParty`／`totalHeads` 處理）。
+- ✅ 修「名單全部顯示 0 人」：`refresh()` 改用單一 collection 查詢一趟抓齊（原本逐場 19 趟，行動網路易中途斷線）；改用 `getDocsFromServer` 讓斷線真的丟錯誤，失敗時保留舊快取並顯示「⚠ 未能更新」，不再錯誤歸零。背景同步 6 秒 → 15 秒，降低免費額度消耗。已用 headless Chrome 實測正常／斷線兩條路徑。
 
 ## 待處理 / 注意
 
